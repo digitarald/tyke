@@ -2,28 +2,32 @@
 
 if (!defined('TYKE_DEBUG')) define('TYKE_DEBUG', true);
 
+if (TYKE_DEBUG) {
+	error_reporting(E_ALL);
+	ini_set('display_errors', '1');
+
+	// Custom error handler, to throw nice-looking error exceptions
+	function errorHandler($errno, $errstr, $errfile, $errline, $errcontext)
+	{
+		$report = error_reporting();
+		if ($report && $report & $errno) {
+			throw new ErrorException($errstr, 0, $errno, $errfile, $errline);
+		}
+	}
+	set_error_handler('errorHandler');
+}
+
+
 /*
  * Controller
  */
 class Controller
 {
-	/**
-	 * @var         Tyke
-	 */
-	protected $tyke = null;
-
 	protected $layout = true;
 
 	protected $layoutTemplate = 'views/layout.php';
 
 	public $headers = array();
-
-	public $content = null;
-
-	public function __construct($tyke)
-	{
-		$this->tyke = $tyke;
-	}
 
 	/**
 	 * Render function return php rendered in a variable
@@ -34,11 +38,12 @@ class Controller
 	public function render($file)
 	{
 		if (!$this->layout) {
-			return $this->renderTemplate($file);
-		}
+			print $this->renderTemplate($file);
+		} else {
+			$this->content = $this->renderTemplate($file);
 
-		$this->content = $this->renderTemplate($file);
-		return $this->renderTemplate($this->layoutTemplate);
+			print $this->renderTemplate($this->layoutTemplate);
+		}
 	}
 
 	/**
@@ -102,26 +107,42 @@ class Tyke
 	/**
 	 * Add url to routes
 	 *
-	 * @param      string Regexp rule
+	 * @param      string Regexp pattern
 	 * @param      string Class
 	 * @param      string Method
-	 * @param      string HTTP method
+	 * @param      array|null Options
 	 *
 	 * @return     Tyke
 	 */
-	public static function addRoute($rule, $klass, $klass_method, $http_method = 'get')
+	public static function addRoute($pattern, $class, $method = 'index', $options = array())
 	{
-		$this->routes[] = array('/^' . str_replace('/', '\/', $rule) . '$/', $klass, $klass_method, $http_method);
+		$defaults = array(
+			'http_method' => null
+		);
+
+		self::$routes[] = array(
+			'pattern' => '/^' . str_replace('/', '\/', $pattern) . '$/',
+			'class' => $class,
+			'method' => $method,
+			'options' => array_merge($defaults, $options)
+		);
 	}
 
 	public static function bootstrap()
 	{
 		try {
-			$this->dispatch($_GET['url']);
+			self::dispatch();
 		} catch (Exception $e) {
-			header('HTTP/1.1 500 Internal Server Error');
+			if (!headers_sent()) {
+				header('HTTP/1.1 500 Internal Server Error');
+			}
 			if (TYKE_DEBUG) {
 
+				// fix stack trace in case it doesn't contain the exception origin as the first entry
+				$fixedTrace = $e->getTrace();
+				if(isset($fixedTrace[0]['file']) && !($fixedTrace[0]['file'] == $e->getFile() && $fixedTrace[0]['line'] == $e->getLine())) {
+					$fixedTrace = array_merge(array(array('file' => $e->getFile(), 'line' => $e->getLine())), $fixedTrace);
+				}
 ?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
 "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -129,21 +150,35 @@ class Tyke
 		<head>
 				<title>Error!</title>
 		</head>
-		<body>
-				<h1>Caught exception: <?= $e->getMessage(); ?></h1>
-				<h2>File: <?= $e->getFile()?></h2>
-				<h2>Line: <?= $e->getLine()?></h2>
-				<h3>Trace</h3>
-				<pre><?php print_r ($e->getTraceAsString()); ?></pre>
-				<h3>Exception Object</h3>
-				<pre><?php print_r ($e); ?></pre>
-				<h3>Var Dump</h3>
-				<pre><?php debug_print_backtrace (); ?></pre>
+		<body style="font-family: monospace;">
+				<h1>Exception: <?php echo get_class($e); ?></h1>
+				<h2>Message</h2>
+				<p><?= html_entity_decode($e->getMessage()); ?></p>
+				<h2>Stack Trace</h2>
+				<ol>
+					<?php
+					foreach($fixedTrace as $no => $trace) {
+						echo '<li>';
+						if(isset($trace['file'])) {
+							echo $trace['file'];
+						} else {
+							echo "Unknown file";
+						}
+
+						if(isset($trace['line'])) {
+							echo " (line: " .$trace['line'] .')';
+						} else {
+							echo "(Unknown line)";
+						}
+						echo '</li>';
+					}
+					?>
+				</ol>
 		</body>
 </html><?php
 
 			} else {
-				echo 'Oops';
+				echo 'Internal Server Error';
 			}
 		}
 	}
@@ -151,50 +186,67 @@ class Tyke
 	/**
 	 * Process requests and dispatch
 	 */
-	public static function dispatch($url)
+	public static function dispatch($url = null, array $params = array())
 	{
-		foreach(self::routes as $rule => $conf) {
-			if (preg_match($conf[0], $url, $matches) and strtolower($_SERVER['REQUEST_METHOD']) == strtolower($conf[3])) {
-				$matches = $this->parseUrl($matches);//Only declared variables in url regex
+		if ($url === null) {
+			$parts = array_merge(array('path' => '', 'query' => ''), parse_url('ty://ke' . $_SERVER['REQUEST_URI']));
 
-				$klass = new $conf[1]();
+			$prepend = dirname($_SERVER['SCRIPT_NAME']);
 
-				ob_start();
+			$from = 0;
+			if (strlen($prepend) > 1) $from = strlen($prepend);
 
-				call_user_func_array(array($klass , $conf[2]),$matches);
+			$url = substr($parts['path'], $from);
 
-				$out = ob_get_contents();
-				ob_end_clean();
-
-				foreach($klass->headers as $header){
-					header($header);
-				}
-
-				print $out;
-				exit;
+			if ($parts['query']) {
+				parse_str($parts['query'], $query);
+				if (is_array($query)) $params = array_merge($query, $params);
 			}
 		}
 
-		call_user_func_array('r404', $_SERVER['REQUEST_METHOD']);
-	}
+		foreach(self::$routes as $route) {
 
-	/**
-	 * Parse url arguments
-	 *
-	 * @param      array
-	 * @return     array
-	 */
-	private function parseUrl($matches) {
-		array_shift($matches);
-
-		$new_matches = array();
-		foreach($matches as $k => $match){
-			if (is_string($k)) {
-				$new_matches[$k] = $match;
+			if (!preg_match($route['pattern'], $url, $matches)) {
+				continue;
 			}
+
+			$options = $route['options'];
+
+			if (!empty($options['http_method']) && strtolower($_SERVER['REQUEST_METHOD']) == strtolower($options['http_method'])) {
+				continue;
+			}
+
+			array_shift($matches);
+
+			foreach($matches as $key => $match){
+				if (is_string($key)) $params[$key] = $match;
+			}
+
+			self::execute($route['class'], $route['method'], $params);
 		}
-		return $new_matches;
+
+		call_user_func('r404', $_SERVER['REQUEST_METHOD']);
 	}
+
+	protected function execute($class, $method, array $params = array())
+	{
+		$instance = new $class();
+
+		ob_start();
+
+		call_user_func(array($instance, $method), $params);
+
+		$out = ob_get_contents();
+		ob_end_clean();
+
+		foreach($instance->headers as $header){
+			header($header);
+		}
+
+		print $out;
+		exit;
+	}
+
 }
 
 ?>
