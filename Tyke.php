@@ -1,27 +1,9 @@
 <?php
 
-if (!defined('TYKE_DEBUG')) define('TYKE_DEBUG', true);
-
-if (TYKE_DEBUG) {
-	error_reporting(E_ALL);
-	ini_set('display_errors', '1');
-
-	// Custom error handler, to throw nice-looking error exceptions
-	function errorHandler($errno, $errstr, $errfile, $errline, $errcontext)
-	{
-		$report = error_reporting();
-		if ($report && $report & $errno) {
-			throw new ErrorException($errstr, 0, $errno, $errfile, $errline);
-		}
-	}
-	set_error_handler('errorHandler');
-}
-
-
 /*
- * Controller
+ * TykeC - The Controller
  */
-class Controller
+class TykeC
 {
 	protected $layout = true;
 
@@ -38,11 +20,11 @@ class Controller
 	public function render($file)
 	{
 		if (!$this->layout) {
-			print $this->renderTemplate($file);
+			print $this->renderPartial($file);
 		} else {
-			$this->content = $this->renderTemplate($file);
+			$this->content = $this->renderPartial($file);
 
-			print $this->renderTemplate($this->layoutTemplate);
+			print $this->renderPartial($this->layoutTemplate);
 		}
 	}
 
@@ -52,7 +34,7 @@ class Controller
 	 * @param      string Path
 	 * @return     string Output
 	 */
-	private function renderTemplate($tyke_file)
+	private function renderPartial($tyke_file)
 	{
 		if (!is_readable($tyke_file)) {
 			throw new Exception('View "'.$tyke_file.'" Not Found');
@@ -85,13 +67,15 @@ class Controller
 	/**
 	 * Redirect to a new page
 	 *
+	 * @param      string url
 	 * @param      boolean Indicates that dispatcher will not wait all process
 	 * @return     Controller Instance
 	 */
 	public function redirect($url, $now = false)
 	{
-		if (!$now) $this->header('Location: ' . $url);
-		else header('Location: ' . $url);
+		if (!$now) return $this->header('Location: ' . $url);
+		header('Location: ' . $url);
+		exit;
 	}
 
 }
@@ -104,6 +88,27 @@ class Tyke
 
 	static protected $routes = array();
 
+	static public $config = array();
+
+	public static function set($name, $value = null)
+	{
+		if (is_array($name)) {
+			foreach ($name as $key => $value) {
+				self::setConfig($key, $value);
+			}
+		} else {
+			self::$config[$name] = $value;
+		}
+	}
+
+	public static function get($name)
+	{
+		if (!isset(self::$config[$name])) return null;
+
+		return self::$config[$name];
+	}
+
+
 	/**
 	 * Add url to routes
 	 *
@@ -114,7 +119,7 @@ class Tyke
 	 *
 	 * @return     Tyke
 	 */
-	public static function addRoute($pattern, $class, $method = 'index', $options = array())
+	public static function register($pattern, $class, $method = 'index', $options = array())
 	{
 		$defaults = array(
 			'http_method' => null
@@ -130,13 +135,21 @@ class Tyke
 
 	public static function bootstrap()
 	{
+		if (self::get('tyke.debug')) {
+			error_reporting(E_ALL);
+			ini_set('display_errors', '1');
+			set_error_handler(array('Tyke', 'rethrow'));
+		}
+
 		try {
 			self::dispatch();
 		} catch (Exception $e) {
+
 			if (!headers_sent()) {
 				header('HTTP/1.1 500 Internal Server Error');
 			}
-			if (TYKE_DEBUG) {
+
+			if (self::get('tyke.debug')) {
 
 				// fix stack trace in case it doesn't contain the exception origin as the first entry
 				$fixedTrace = $e->getTrace();
@@ -183,6 +196,14 @@ class Tyke
 		}
 	}
 
+	public static function rethrow($errno, $errstr, $errfile, $errline, $errcontext)
+	{
+		$report = error_reporting();
+		if ($report && $report & $errno) {
+			throw new ErrorException($errstr, 0, $errno, $errfile, $errline);
+		}
+	}
+
 	/**
 	 * Process requests and dispatch
 	 */
@@ -212,8 +233,13 @@ class Tyke
 
 			$options = $route['options'];
 
-			if (!empty($options['http_method']) && strtolower($_SERVER['REQUEST_METHOD']) == strtolower($options['http_method'])) {
-				continue;
+			if (!empty($options['http_method'])) {
+				$check = $_SERVER['REQUEST_METHOD'];
+				if (is_array($options['http_method'])) {
+					if (in_array($check, $options['http_method'])) continue;
+				} else {
+					if ($options['http_method'] == $check) continue;
+				}
 			}
 
 			array_shift($matches);
@@ -225,7 +251,12 @@ class Tyke
 			self::execute($route['class'], $route['method'], $params);
 		}
 
-		call_user_func('r404', $_SERVER['REQUEST_METHOD']);
+		if (function_exists('r404')) {
+			call_user_func('r404', $_SERVER['REQUEST_METHOD']);
+		} else {
+			header('HTTP/1.1 404 Not Found');
+			die('Error: 404 Not Found');
+		}
 	}
 
 	protected function execute($class, $method, array $params = array())
