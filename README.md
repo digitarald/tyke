@@ -1,6 +1,8 @@
 Tyke
 ===
 
+[![Tyke (Tom and Jerry) on Wikipedia](http://upload.wikimedia.org/wikipedia/en/thumb/c/c7/Tyke_Tom_and_Jerry.JPG/200px-Tyke_Tom_and_Jerry.JPG)](http://en.wikipedia.org/wiki/Tyke_%28Tom_and_Jerry%29)
+
 Is a nano web framework for PHP, like web.py for Python, Sinatra or Camping for Ruby.
 
 It was forked by Harald Kirschner of Nice Dog (originally by Tiago Bastos).
