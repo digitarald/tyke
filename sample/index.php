@@ -1,35 +1,39 @@
 <?php
-error_reporting(E_ALL);
-			ini_set('display_errors', '1');
+
 require('../Tyke.php');
 
-// some configuration
+// debug enables display-errors and exception page
 Tyke::set('tyke.debug', true);
 
+// include more libraries, start a session ... feed the dog
+
 // Sample controller
-class App extends TykeC
+class Sample extends TykeC
 {
 
 	public function index()
 	{
-		$this->name = 'World';
-
-		$this->render('views/greeting.php');
+		$this->forward(array('Sample', 'greet'), array('World'));
 	}
 
 	public function greet($name)
 	{
 		$this->name = htmlspecialchars(ucfirst($name));
+		// also available as $_GET['name']
 
 		$this->render('views/greeting.php');
 	}
 
 }
 
-Tyke::register('/', array('App'));
+Tyke::register(array(
+	'/' => array('Sample'), // method defaults to 'index'
+	'/welcome-(name:[-\w]+)' => array('Sample', 'greet')
+));
 
-Tyke::register('/welcome-(?P<name>[-\w]+)', array('App', 'greet'));
+// As single line: Tyke::register('/', array('Sample', 'index')
 
+// Let the dog out ...
 Tyke::run();
 
 ?>
