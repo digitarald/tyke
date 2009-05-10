@@ -1,99 +1,33 @@
 <?php
-
-/*
- * TykeC - The Controller
+/**
+ * Tyke
+ *
+ * Is a nano web framework for PHP, like web.py for Python, Sinatra or Camping for Ruby.
+ *
+ * It was forked by Harald Kirschner of Nice Dog, originally by Tiago Bastos.
+ *
+ * @author       Tiago Bastos
+ * @author       Harald Kirschner <harald@digitarald.com>
+ * @copyright    2009 Authors
+ * @license      MIT License
  */
-class TykeC
-{
-	protected $layout = true;
-
-	protected $layoutTemplate = 'views/layout.php';
-
-	public $headers = array();
-
-	/**
-	 * Render function return php rendered in a variable
-	 *
-	 * @param      string File
-	 * @return     Controller Instance
-	 */
-	public function render($file)
-	{
-		if (!$this->layout) {
-			print $this->renderPartial($file);
-		} else {
-			$this->content = $this->renderPartial($file);
-
-			print $this->renderPartial($this->layoutTemplate);
-		}
-	}
-
-	/**
-	 * Open template to render and return php rendered in a variable using ob_start/ob_end_clean
-	 *
-	 * @param      string Path
-	 * @return     string Output
-	 */
-	private function renderPartial($tyke_file)
-	{
-		if (!is_readable($tyke_file)) {
-			throw new Exception('View "'.$tyke_file.'" Not Found');
-		}
-
-		extract(get_object_vars($this), EXTR_REFS | EXTR_PREFIX_INVALID, '_');
-
-		ob_start();
-
-		require($tyke_file);
-
-		$out = ob_get_contents();
-		ob_end_clean();
-
-		return $out;
-	}
-
-	/**
-	 * Add information in header
-	 *
-	 * @param      string Value
-	 * @return     Controller Instance
-	 */
-	public function header($text)
-	{
-		$this->headers[] = $text;
-		return $this;
-	}
-
-	/**
-	 * Redirect to a new page
-	 *
-	 * @param      string url
-	 * @param      boolean Indicates that dispatcher will not wait all process
-	 * @return     Controller Instance
-	 */
-	public function redirect($url, $now = false)
-	{
-		if (!$now) return $this->header('Location: ' . $url);
-		header('Location: ' . $url);
-		exit;
-	}
-
-}
 
 /*
- * Application core
+ * Tyke - Application core
+ *
+ * Just configuration and magic routing
  */
 class Tyke
 {
 
-	static protected $routes = array();
+	static public $routes = array();
 
 	static public $config = array();
 
 	public static function set($name, $value = null)
 	{
 		if (is_array($name)) {
-			foreach ($name as $key => $value) {
+			foreach ($name as $key => &$value) {
 				self::setConfig($key, $value);
 			}
 		} else {
@@ -101,9 +35,9 @@ class Tyke
 		}
 	}
 
-	public static function get($name)
+	public static function get($name, $default = null)
 	{
-		if (!isset(self::$config[$name])) return null;
+		if (!isset(self::$config[$name])) return $default;
 
 		return self::$config[$name];
 	}
@@ -119,23 +53,26 @@ class Tyke
 	 *
 	 * @return     Tyke
 	 */
-	public static function register($pattern, $class, $method = 'index', $options = array())
+	public static function register($pattern, $function = 'index', $options = array())
 	{
+		if (is_array($pattern)) {
+			foreach ($pattern as $value) call_user_func_array(array('Tyke', 'register'), $value);
+		}
+
 		$defaults = array(
 			'http_method' => null
 		);
 
 		self::$routes[] = array(
 			'pattern' => '/^' . str_replace('/', '\/', $pattern) . '$/',
-			'class' => $class,
-			'method' => $method,
+			'function' => $function,
 			'options' => array_merge($defaults, $options)
 		);
 	}
 
-	public static function bootstrap()
+	public static function run()
 	{
-		if (self::get('tyke.debug')) {
+		if (self::get('tyke.debug', true)) {
 			error_reporting(E_ALL);
 			ini_set('display_errors', '1');
 			set_error_handler(array('Tyke', 'rethrow'));
@@ -149,12 +86,12 @@ class Tyke
 				header('HTTP/1.1 500 Internal Server Error');
 			}
 
-			if (self::get('tyke.debug')) {
+			if (self::get('tyke.debug', true)) {
 
-				// fix stack trace in case it doesn't contain the exception origin as the first entry
 				$fixedTrace = $e->getTrace();
-				if(isset($fixedTrace[0]['file']) && !($fixedTrace[0]['file'] == $e->getFile() && $fixedTrace[0]['line'] == $e->getLine())) {
-					$fixedTrace = array_merge(array(array('file' => $e->getFile(), 'line' => $e->getLine())), $fixedTrace);
+
+				if (isset($fixedTrace[0]['file']) && !($fixedTrace[0]['file'] == $e->getFile() && $fixedTrace[0]['line'] == $e->getLine())) {
+					array_unshift($fixedTrace, array('file' => $e->getFile(), 'line' => $e->getLine()));
 				}
 ?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
@@ -170,7 +107,7 @@ class Tyke
 				<h2>Stack Trace</h2>
 				<ol>
 					<?php
-					foreach($fixedTrace as $no => $trace) {
+					foreach($fixedTrace as $trace) {
 						echo '<li>';
 						if(isset($trace['file'])) {
 							echo $trace['file'];
@@ -207,9 +144,9 @@ class Tyke
 	/**
 	 * Process requests and dispatch
 	 */
-	public static function dispatch($url = null, array $params = array())
+	public static function dispatch($uri = null)
 	{
-		if ($url === null) {
+		if ($uri === null) {
 			$parts = array_merge(array('path' => '', 'query' => ''), parse_url('ty://ke' . $_SERVER['REQUEST_URI']));
 
 			$prepend = dirname($_SERVER['SCRIPT_NAME']);
@@ -217,17 +154,21 @@ class Tyke
 			$from = 0;
 			if (strlen($prepend) > 1) $from = strlen($prepend);
 
-			$url = substr($parts['path'], $from);
+			$uri = substr($parts['path'], $from);
+
+			$_GET = array();
 
 			if ($parts['query']) {
 				parse_str($parts['query'], $query);
-				if (is_array($query)) $params = array_merge($query, $params);
+				if (is_array($query)) $_GET = $query;
 			}
 		}
 
+		Tyke::set('tyke.request.uri', $uri);
+
 		foreach(self::$routes as $route) {
 
-			if (!preg_match($route['pattern'], $url, $matches)) {
+			if (!preg_match($route['pattern'], $uri, $matches)) {
 				continue;
 			}
 
@@ -244,37 +185,162 @@ class Tyke
 
 			array_shift($matches);
 
+			$params = array();
+
 			foreach($matches as $key => $match){
 				if (is_string($key)) $params[$key] = $match;
 			}
 
-			self::execute($route['class'], $route['method'], $params);
+			$_GET = array_merge($_GET, $params);
+
+			$_REQUEST = array_merge($_POST, $_GET, $_COOKIE);
+
+			self::execute($route['function'], $params);
 		}
 
-		if (function_exists('r404')) {
-			call_user_func('r404', $_SERVER['REQUEST_METHOD']);
+		$r404 = Tyke::get('type.r404', 'r404');
+		if (function_exists($r404)) {
+			call_user_func($r404, $_SERVER['REQUEST_METHOD']);
 		} else {
 			header('HTTP/1.1 404 Not Found');
 			die('Error: 404 Not Found');
 		}
 	}
 
-	protected function execute($class, $method, array $params = array())
+	protected function execute($function, array $params = array())
 	{
-		$instance = new $class();
+		if (is_string($function) && strpos($function, '::') !== false) $function = explode('::', $function, 2);
+
+		if (is_array($function)) {
+			if (is_string($function[0])) {
+				if (!class_exists($function[0], true)) {
+					throw new Exception('Controller "'.$class.'" Not Found');
+				}
+
+				$function[0] = new $function[0]();
+			}
+
+			if (empty($function[1])) $function[1] = 'index';
+
+			if (!method_exists($function[0], $function[1])) {
+				throw new Exception('Method "'.$function[1].'" Not Found');
+			}
+		}
 
 		ob_start();
 
-		call_user_func(array($instance, $method), $params);
+		call_user_func_array($function, $params);
 
 		$out = ob_get_contents();
 		ob_end_clean();
 
-		foreach($instance->headers as $header){
-			header($header);
+		if (is_array($function)) {
+			foreach($function[0]->headers as $header){
+				header($header);
+			}
 		}
 
 		print $out;
+		exit;
+	}
+
+}
+
+
+/*
+ * TykeC - The Controller
+ */
+class TykeC
+{
+	protected $layout = true;
+
+	protected $layoutTemplate = 'views/layout.php';
+
+	public $headers = array();
+
+	public $slots = array();
+
+	/**
+	 * Render function return php rendered in a variable
+	 *
+	 * @param      string File
+	 * @return     Controller Instance
+	 */
+	public function render($file, $vars = null)
+	{
+		if (!$this->layout) {
+			print $this->renderPartial($file, $vars);
+		} else {
+			$this->content = $this->renderPartial($file, $vars);
+
+			print $this->renderPartial($this->layoutTemplate, $vars);
+		}
+	}
+
+	/**
+	 * Open template to render and return php rendered in a variable using ob_start/ob_end_clean
+	 *
+	 * @param      string Path
+	 * @return     string Output
+	 */
+	private function renderPartial($tyke_file, $tyke_vars = null)
+	{
+		if (!is_readable($tyke_file)) {
+			throw new Exception('View "'.$tyke_file.'" Not Found');
+		}
+
+		extract(get_object_vars($this), EXTR_REFS | EXTR_PREFIX_INVALID, '_');
+
+		if (is_array($tyke_vars)) {
+			extract($tyke_vars, EXTR_REFS | EXTR_PREFIX_INVALID, '_');
+		}
+
+		ob_start();
+
+		require($tyke_file);
+
+		$out = ob_get_contents();
+		ob_end_clean();
+
+		return $out;
+	}
+
+	/**
+	 * Add information in header
+	 *
+	 * @param      string Value
+	 * @return     Controller Instance
+	 */
+	public function header($text)
+	{
+		$this->headers[] = $text;
+		return $this;
+	}
+
+	/**
+	 * Redirect to a new page
+	 *
+	 * @param      string uri
+	 * @param      boolean Indicates that dispatcher will not wait all process
+	 * @return     Controller Instance
+	 */
+	public function redirect($uri, $now = false)
+	{
+		if (!$now) return $this->header('Location: ' . $uri);
+		header('Location: ' . $uri);
+		exit;
+	}
+
+	/**
+	 * Forward to a new action
+	 *
+	 * @param      string uri
+	 * @param      boolean Indicates that dispatcher will not wait all process
+	 * @return     Controller Instance
+	 */
+	public function forward($class, $method = 'index', $params = array())
+	{
+		Tyke::execute($class, $method, $params);
 		exit;
 	}
 
