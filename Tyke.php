@@ -229,7 +229,9 @@ class Tyke
 
 			if (empty($function[1])) $function[1] = 'index';
 
-			if (!method_exists($function[0], $function[1])) throw new Exception('Method "'.$function[1].'" Not Found');
+			if (!method_exists($function[0], $function[1]) && !method_exists($function[0], '__call')) {
+				throw new Exception('Method "'.$function[1].'" Not Found');
+			}
 		}
 
 		ob_start();
