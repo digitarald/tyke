@@ -337,9 +337,9 @@ class TykeC
 	 * @param      boolean Indicates that dispatcher will not wait all process
 	 * @return     Controller Instance
 	 */
-	public function forward($class, $method = 'index', $params = array())
+	public function forward($function, $params = array())
 	{
-		Tyke::execute($class, $method, $params);
+		Tyke::execute($function, $params);
 		exit;
 	}
 
