@@ -3,7 +3,7 @@
 require('../../Tyke.php');
 
 // debug enables display-errors and exception page
-Tyke::set('tyke.debug', true);
+Tyke::set('core.debug', true);
 
 // include more libraries, start a session ... feed the dog
 

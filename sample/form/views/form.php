@@ -1,4 +1,4 @@
-<form id="form-md5" action="<?= Tyke::get('tyke.run.self') ?>" method="post">
+<form id="form-md5" action="<?= Tyke::get('core.run.self') ?>" method="post">
 
 	<fieldset>
 		<legend>Generate MD5 from Text</legend>

@@ -91,11 +91,11 @@ class Tyke
 	/**
 	 * Starts Tyke with the registered routes.
 	 *
-	 * If "tyke.debug" is enabled, exceptions are displayed, otherwise a 500-Error is shown.
+	 * If "core.debug" is enabled, exceptions are displayed, otherwise a 500-Error is shown.
 	 */
 	public static function run()
 	{
-		if (self::get('tyke.debug', true)) {
+		if (self::get('core.debug', true)) {
 			error_reporting(E_ALL);
 			ini_set('display_errors', '1');
 			set_error_handler(array('Tyke', 'rethrow'));
@@ -107,7 +107,7 @@ class Tyke
 
 			if (!headers_sent()) header('HTTP/1.1 500 Internal Server Error');
 
-			if (self::get('tyke.debug', true)) {
+			if (self::get('core.debug', true)) {
 
 				$fixedTrace = $e->getTrace();
 
@@ -198,9 +198,9 @@ class Tyke
 				}
 			}
 
-			Tyke::set('tyke.run.basepath', $prepend);
-			Tyke::set('tyke.run.uri', $page);
-			Tyke::set('tyke.run.self', $self);
+			Tyke::set('core.run.basepath', $prepend);
+			Tyke::set('core.run.uri', $page);
+			Tyke::set('core.run.self', $self);
 		}
 
 		foreach(self::$routes as $route) {
@@ -222,7 +222,7 @@ class Tyke
 				}
 			}
 
-			Tyke::set('tyke.run.route', $route);
+			Tyke::set('core.run.route', $route);
 
 			// get params from named matches
 			array_shift($matches);
@@ -233,7 +233,7 @@ class Tyke
 				if (is_string($key)) $params[$key] = $match;
 			}
 
-			Tyke::set('tyke.run.params', $params);
+			Tyke::set('core.run.params', $params);
 
 			// populate data back to global data holders
 			$_GET = array_merge($_GET, $params);
@@ -242,7 +242,7 @@ class Tyke
 			self::execute($route['callback'], $params);
 		}
 
-		$r404 = Tyke::get('tyke.r404', 'r404');
+		$r404 = Tyke::get('core.r404', 'r404');
 
 		if ($r404 && function_exists($r404)) {
 			call_user_func($r404, $_SERVER['REQUEST_METHOD']);
