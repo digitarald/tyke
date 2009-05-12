@@ -38,7 +38,8 @@ Nice Urls
 
 	Tyke::register('/', array('Test', 'index'));
 
-Tutorial for who doesn't have time
+Walk-through
+---
 
 1. Get the files
 2. Put in your htdocs directory, or a subdirectory.
@@ -85,6 +86,11 @@ To change base layout add to your method: `$this->layout = 'myLayout.php';`
 ### Template `views/index.php`
 
 	<span><?= htmlspecialchars($tag) ?></span>
+
+Samples
+---
+
+To run the samples, copy the `.htaccess` in your favourite sample folder and change the `RewriteBase` according to your absolute web path (e.g. `/tyke/sample/simple/` if you load it via `http://localhost/tyke/sample/simple/`). 
 
 License
 ---
