@@ -31,8 +31,6 @@ Tyke::register(array(
 	'/welcome-(name:[-\w]+)' => array('Sample', 'greet')
 ));
 
-// As single line: Tyke::register('/', array('Sample', 'index')
-
 // Let the dog out ...
 Tyke::run();
 

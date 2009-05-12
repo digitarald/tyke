@@ -24,6 +24,12 @@ class Tyke
 
 	static public $config = array();
 
+	/**
+	 * Sets one or many internal value.
+	 *
+	 * @param			 string|array Name or list of name/value pairs
+	 * @param      mixed|null Value
+	 */
 	public static function set($name, $value = null)
 	{
 		if (is_array($name)) {
@@ -35,6 +41,14 @@ class Tyke
 		}
 	}
 
+	/**
+	 * Gets one value by name or the default value if name does not not exist.
+	 *
+	 * @param			 string Name
+	 * @param      mixed|null Default value
+	 *
+	 * @return     mixed
+	 */
 	public static function get($name, $default = null)
 	{
 		if (!isset(self::$config[$name])) return $default;
@@ -44,16 +58,15 @@ class Tyke
 
 
 	/**
-	 * Add url to routes
+	 * Register URI pattern as route
 	 *
-	 * @param      string Regexp pattern
-	 * @param      string Class
-	 * @param      string Method
+	 * @param      string|array Regexp pattern or array of pattern/function pairs
+	 * @param      array|string Callback array (*not* static! Will be called on the instance) or string for a method
 	 * @param      array|null Options
 	 *
 	 * @return     Tyke
 	 */
-	public static function register($pattern, $function = 'index', $options = array())
+	public static function register($pattern, $callback = null, $options = array())
 	{
 		if (is_array($pattern)) {
 			foreach ($pattern as $key => $value) {
@@ -67,13 +80,19 @@ class Tyke
 
 			$pattern = str_replace('/', '\/', preg_replace('/\\(([a-z][-\w]*):/i', '(?P<$1>', $pattern));
 
-			self::$routes['/^' . $pattern . '$/U'] = array(
-				'function' => $function,
+			self::$routes[] = array(
+				'pattern' => '/^' . $pattern . '$/U',
+				'callback' => $callback,
 				'options' => array_merge($defaults, $options)
 			);
 		}
 	}
 
+	/**
+	 * Starts Tyke with the registered routes.
+	 *
+	 * If "tyke.debug" is enabled, exceptions are displayed, otherwise a 500-Error is shown.
+	 */
 	public static function run()
 	{
 		if (self::get('tyke.debug', true)) {
@@ -109,19 +128,15 @@ class Tyke
 				<h2>Stack Trace</h2>
 				<ol>
 					<?php
-					foreach($fixedTrace as $trace) {
+					foreach ($fixedTrace as $trace) {
 						echo '<li>';
-						if(isset($trace['file'])) {
-							echo $trace['file'];
-						} else {
-							echo "Unknown file";
-						}
 
-						if(isset($trace['line'])) {
-							echo " (line: " .$trace['line'] .')';
-						} else {
-							echo "(Unknown line)";
-						}
+						if (isset($trace['file'])) echo $trace['file'];
+						else echo "Unknown file";
+
+						if (isset($trace['line'])) echo " (line: " .$trace['line'] .')';
+						else echo "(Unknown line)";
+
 						echo '</li>';
 					}
 					?>
@@ -132,9 +147,14 @@ class Tyke
 			} else {
 				echo 'Internal Server Error';
 			}
+
+			exit;
 		}
 	}
 
+	/**
+	 * Internal method to re-throw lame PHP errors as nice exceptions
+	 */
 	public static function rethrow($errno, $errstr, $errfile, $errline, $errcontext)
 	{
 		$report = error_reporting();
@@ -144,7 +164,9 @@ class Tyke
 	}
 
 	/**
-	 * Process requests and dispatch
+	 * Process the given URL or the path from the .htaccess redirect.
+	 *
+	 * @param      string|null URI
 	 */
 	public static function dispatch($uri = null)
 	{
@@ -153,24 +175,37 @@ class Tyke
 
 			$prepend = dirname($_SERVER['SCRIPT_NAME']);
 
-			$from = 0;
-			if (strlen($prepend) > 1) $from = strlen($prepend);
+			$from = strlen($prepend);
+			$uri = $parts['path'];
 
-			$uri = substr($parts['path'], $from);
+			if ($from < 2) {
+				$prepend = '/';
+				$page = $uri;
+			} else {
+				$uri = substr($uri, $from);
+				$page = $prepend . $uri;
+			}
+
+			$self = $page;
 
 			$_GET = array();
 
 			if ($parts['query']) {
 				parse_str($parts['query'], $query);
-				if (is_array($query)) $_GET = $query;
+				if (is_array($query)) {
+					$_GET = $query;
+					$self .= '?' . http_build_query($query, null, '&');
+				}
 			}
+
+			Tyke::set('tyke.run.basepath', $prepend);
+			Tyke::set('tyke.run.uri', $page);
+			Tyke::set('tyke.run.self', $self);
 		}
 
-		Tyke::set('tyke.run.uri', $uri);
+		foreach(self::$routes as $route) {
 
-		foreach(self::$routes as $pattern => $route) {
-
-			if (!preg_match($pattern, $uri, $matches)) {
+			if (!preg_match($route['pattern'], $uri, $matches)) {
 				continue;
 			}
 
@@ -179,10 +214,11 @@ class Tyke
 			// optional http_method, can be string or array
 			if (!empty($options['http_method'])) {
 				$check = $_SERVER['REQUEST_METHOD'];
+
 				if (is_array($options['http_method'])) {
-					if (in_array($check, $options['http_method'])) continue;
+					if (!in_array($check, $options['http_method'])) continue;
 				} else {
-					if ($options['http_method'] == $check) continue;
+					if ($options['http_method'] != $check) continue;
 				}
 			}
 
@@ -203,46 +239,52 @@ class Tyke
 			$_GET = array_merge($_GET, $params);
 			$_REQUEST = array_merge($_POST, $_GET, $_COOKIE);
 
-			self::execute($route['function'], $params);
+			self::execute($route['callback'], $params);
 		}
 
 		$r404 = Tyke::get('tyke.r404', 'r404');
 
-		if (function_exists($r404)) {
+		if ($r404 && function_exists($r404)) {
 			call_user_func($r404, $_SERVER['REQUEST_METHOD']);
 		} else {
-			header('HTTP/1.1 404 Not Found');
+			if (!headers_sent()) header('HTTP/1.1 404 Not Found');
 			die('Error: 404 Not Found');
 		}
 	}
 
-	public function execute($function, array $params = array())
+	/**
+	 * Execute a function with the given arguments, echoes the result and exits the application.
+	 *
+	 * @param      array|string Callback, array (class[, method == 'index']), string 'class::method' or 'function'
+	 * @param      array Parameters for the callback
+	 */
+	public function execute($callback, array $params = array())
 	{
-		if (is_string($function) && strpos($function, '::') !== false) $function = explode('::', $function, 2);
+		if (is_string($callback) && strpos($callback, '::') !== false) $callback = explode('::', $callback, 2);
 
-		if (is_array($function)) {
-			if (is_string($function[0])) {
-				if (!class_exists($function[0], true)) throw new Exception('Controller "'.$class.'" Not Found');
+		if (is_array($callback)) {
+			if (is_string($callback[0])) {
+				if (!class_exists($callback[0], true)) throw new Exception('Controller "'.$class.'" Not Found');
 
-				$function[0] = new $function[0]();
+				$callback[0] = new $callback[0]();
 			}
 
-			if (empty($function[1])) $function[1] = 'index';
+			if (empty($callback[1])) $callback[1] = 'index';
 
-			if (!method_exists($function[0], $function[1]) && !method_exists($function[0], '__call')) {
-				throw new Exception('Method "'.$function[1].'" Not Found');
+			if (!method_exists($callback[0], $callback[1]) && !method_exists($callback[0], '__call')) {
+				throw new Exception('Method "'.$callback[1].'" Not Found');
 			}
 		}
 
 		ob_start();
 
-		call_user_func_array($function, $params);
+		call_user_func_array($callback, $params);
 
 		$out = ob_get_contents();
 		ob_end_clean();
 
-		if (is_array($function)) {
-			foreach($function[0]->headers as $header) header($header);
+		if (is_array($callback) && !empty($callback[0]->headers)) {
+			foreach($callback[0]->headers as $header) header($header);
 		}
 
 		print $out;
@@ -339,10 +381,9 @@ class TykeC
 	 * @param      boolean Indicates that dispatcher will not wait all process
 	 * @return     Controller Instance
 	 */
-	public function forward($function, $params = array())
+	public function forward($callback, $params = array())
 	{
-		Tyke::execute($function, $params);
-		exit;
+		Tyke::execute($callback, $params);
 	}
 
 }
