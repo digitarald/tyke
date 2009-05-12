@@ -34,7 +34,7 @@ class Tyke
 	{
 		if (is_array($name)) {
 			foreach ($name as $key => &$value) {
-				self::setConfig($key, $value);
+				self::set($key, $value);
 			}
 		} else {
 			self::$config[$name] = $value;
